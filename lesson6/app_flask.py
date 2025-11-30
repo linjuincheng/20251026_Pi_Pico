@@ -11,7 +11,6 @@ import json
 import threading
 import csv
 import os
-
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
