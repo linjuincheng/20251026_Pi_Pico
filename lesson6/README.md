@@ -26,7 +26,7 @@
 
 ```bash
 cd /home/pi/Documents/GitHub/2025_10_26_chihlee_pi_pico/lesson6
-./start.sh
+bash start.sh
 ```
 
 ### 方式 2：手動啟動
@@ -36,11 +36,34 @@ cd /home/pi/Documents/GitHub/2025_10_26_chihlee_pi_pico/lesson6
 uv run python app_flask.py
 ```
 
+### 方式 3：檢查服務狀態（如已安裝服務）
+
+如果您已透過 `install_service.sh` 安裝為系統服務，可以使用以下命令檢查狀態：
+
+```bash
+# 檢查 mqtt-monitor 服務狀態
+sudo systemctl status mqtt-monitor
+```
+
+通用 Linux 服務檢查方式：
+```bash
+# 語法：sudo systemctl status <服務名稱>
+sudo systemctl status mosquitto
+```
+
 ### 開啟網頁
 
 在瀏覽器中訪問：
 - 本地：http://localhost:8080
-- 區域網路：http://172.20.10.3:8080
+- 區域網路：http://<您的IP地址>:8080
+
+**如何查詢您的 IP 地址：**
+
+在終端機輸入以下命令：
+```bash
+hostname -I
+```
+第一個顯示的 IP 地址即為您的區域網路 IP。例如若顯示 `192.168.1.15`，則網址為 `http://192.168.1.15:8080`。
 
 ## 📊 測試數據
 
@@ -116,6 +139,167 @@ sudo systemctl enable mosquitto
 - 濕度：`humidity` 或 `humi`
 - 電燈：`light_status` 或 `light`
 
+## 🔌 使用 Raspberry Pi Pico W 發送數據
+
+### MicroPython 範例代碼
+
+如果您使用 **Raspberry Pi Pico W**（帶 WiFi），可以使用以下代碼發送感測器數據：
+
+#### 完整範例（含 DHT22 溫濕度感測器）
+
+```python
+# Raspberry Pi Pico W - MQTT 感測器發送範例
+import network
+import time
+from umqtt.simple import MQTTClient
+import ujson
+import dht
+from machine import Pin
+
+# ===== 設定區 =====
+WIFI_SSID = "你的WiFi名稱"
+WIFI_PASSWORD = "你的WiFi密碼"
+MQTT_BROKER = "172.20.10.3"  # 請改為您的 Raspberry Pi IP (使用 hostname -I 查詢)
+MQTT_TOPIC = "客廳/感測器"
+
+# 硬體設定
+dht_sensor = dht.DHT22(Pin(15))  # DHT22 接 GP15
+led = Pin(16, Pin.OUT)           # LED 接 GP16
+
+# WiFi 連線
+def connect_wifi():
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    wlan.connect(WIFI_SSID, WIFI_PASSWORD)
+    
+    print("連接 WiFi...")
+    while not wlan.isconnected():
+        time.sleep(1)
+    print(f"✅ WiFi 已連線: {wlan.ifconfig()[0]}")
+
+# 主程式
+def main():
+    connect_wifi()
+    
+    # 連接 MQTT
+    client = MQTTClient("pico_sensor", MQTT_BROKER, 1883)
+    client.connect()
+    print("✅ MQTT 已連線")
+    
+    try:
+        while True:
+            # 讀取感測器
+            dht_sensor.measure()
+            temp = dht_sensor.temperature()
+            humi = dht_sensor.humidity()
+            light = "開" if led.value() == 1 else "關"
+            
+            # 建立 JSON 數據
+            data = {
+                "temperature": temp,
+                "humidity": humi,
+                "light_status": light
+            }
+            
+            # 發送 MQTT
+            client.publish(MQTT_TOPIC, ujson.dumps(data))
+            print(f"✅ 已發送: 溫度={temp}°C, 濕度={humi}%, 燈={light}")
+            
+            time.sleep(5)  # 每 5 秒發送一次
+            
+    except KeyboardInterrupt:
+        print("已停止")
+    finally:
+        client.disconnect()
+
+main()
+```
+
+#### 簡化測試版（無需感測器）
+
+```python
+# Pico W - MQTT 測試版本
+import network
+import time
+from umqtt.simple import MQTTClient
+import ujson
+import random
+
+WIFI_SSID = "你的WiFi名稱"
+WIFI_PASSWORD = "你的WiFi密碼"
+MQTT_BROKER = "172.20.10.3"  # 請改為您的 Raspberry Pi IP
+
+def connect_wifi():
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    wlan.connect(WIFI_SSID, WIFI_PASSWORD)
+    while not wlan.isconnected():
+        time.sleep(1)
+    print(f"✅ WiFi: {wlan.ifconfig()[0]}")
+
+connect_wifi()
+client = MQTTClient("pico_test", MQTT_BROKER, 1883)
+client.connect()
+
+count = 0
+while True:
+    data = {
+        "temperature": round(20 + random.uniform(0, 10), 2),
+        "humidity": round(50 + random.uniform(0, 20), 2),
+        "light_status": "開" if count % 2 == 0 else "關"
+    }
+    client.publish("客廳/感測器", ujson.dumps(data))
+    print(f"✅ 已發送: {data}")
+    count += 1
+    time.sleep(5)
+```
+
+### 硬體連接
+
+如果使用 DHT22 溫濕度感測器：
+
+```
+DHT22 溫濕度感測器：
+├─ VCC  → Pico 3V3 (Pin 36)
+├─ DATA → Pico GP15 (Pin 20)
+└─ GND  → Pico GND (Pin 38)
+
+LED（電燈模擬）：
+├─ 正極 → Pico GP16 (Pin 21)
+└─ 負極 → GND + 220Ω 電阻
+```
+
+### 需要的函式庫
+
+在 Pico 上需要安裝 MQTT 函式庫：
+
+```bash
+# 使用 mpremote 安裝
+mpremote mip install umqtt.simple
+```
+
+或在 Thonny IDE 中：
+1. 工具 → 管理套件
+2. 搜尋 `umqtt.simple`
+3. 安裝
+
+### 使用步驟
+
+1. **修改代碼設定**：
+   - WiFi SSID 和密碼
+   - MQTT_BROKER 改為你的 Raspberry Pi IP 地址
+
+2. **上傳到 Pico W**：
+   - 使用 Thonny IDE 或其他工具
+
+3. **執行程式**：
+   - Pico 會每 5 秒自動發送一次數據
+   - Flask 應用程式網頁會即時更新顯示
+
+4. **查看結果**：
+   - 打開 http://localhost:8080 或 http://<您的Pi IP>:8080
+   - 即可看到 Pico 發送的數據
+
 ## 📈 效能比較
 
 | 項目 | Streamlit 版本 | Flask 版本 |
@@ -125,6 +309,44 @@ sudo systemctl enable mosquitto
 | 啟動速度 | 5-10 秒 | < 1 秒 |
 | 即時更新 | 需重新整理 | WebSocket 自動推送 |
 | CPU 佔用 | 高 | 低 |
+
+## 🖥️ 服務管理
+
+如果您已使用 `install_service.sh` 將應用程式安裝為系統服務，可以使用以下命令管理服務。
+
+### 檢查服務狀態
+
+檢查 MQTT 監控服務是否正在運行：
+
+```bash
+sudo systemctl status mqtt-monitor
+```
+
+### 其他常用命令
+
+```bash
+# 啟動服務
+sudo systemctl start mqtt-monitor
+
+# 停止服務
+sudo systemctl stop mqtt-monitor
+
+# 重新啟動服務
+sudo systemctl restart mqtt-monitor
+
+# 查看即時日誌
+sudo journalctl -u mqtt-monitor -f
+```
+
+### Linux 服務狀態檢查通用方式
+
+在 Linux 系統中，可以使用 `systemctl` 命令來檢查任何服務的狀態：
+
+```bash
+# 語法：sudo systemctl status <服務名稱>
+sudo systemctl status mosquitto
+sudo systemctl status ssh
+```
 
 ## 🐛 常見問題
 
@@ -209,5 +431,4 @@ pkill -f "python app_flask.py"
 ## 🙏 致謝
 
 感謝使用本專案！如有問題或建議，歡迎提出 Issue。
-
 
