@@ -9,8 +9,8 @@ import socket
 # -------------------------------
 # 你可以設定你的 WiFi 資訊
 # -------------------------------
-WIFI_SSID = "xxxx"
-WIFI_PASSWORD = "xxx"
+WIFI_SSID = "James"
+WIFI_PASSWORD = "cozw9738"
 
 # -------------------------------
 # WiFi 連線函式
@@ -80,12 +80,3 @@ def test_internet(host="8.8.8.8", port=53, timeout=3):
     """
     使用 UDP 測試外部網路是否可連線
     """
-    try:
-        addr = socket.getaddrinfo(host, port)[0][-1]
-        s = socket.socket()
-        s.settimeout(timeout)
-        s.connect(addr)
-        s.close()
-        return True
-    except:
-        return False
